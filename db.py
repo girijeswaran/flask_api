@@ -88,6 +88,9 @@ def create_table(table_name):
 
         print("Table Created Successfully")
 
+    except dynamodb.exceptions.ResourceInUseException:
+        print("Table already exists")
+
     except Exception as e:
         print(f"An error occurred: {e}")
 
@@ -173,19 +176,63 @@ def update_item(item_dict):
     try:
         # Not Completed Yet
 
-        key = ""
+        # id = item_dict["id"]
 
-        attribute_name = ""
+        id = item_dict.pop("id", None)
 
-        new_value = ""
+        key = {"id": {"N": str(id)}}
+
+        update_expression = "SET "
+
+        expression_attribute_name = {}
+        expression_attribute_value = {}
+
+        # serialized_item = {
+        #     key: serializer.serialize(convert_float_to_decimal(value))
+        #     for key, value in item_dict.items()
+        # }
+
+        for k, v in item_dict.items():
+            update_expression += f"#{k} = :{k}, "
+            expression_attribute_name[f"#{k}"] = k
+            expression_attribute_value[f":{k}"] = serializer.serialize(
+                convert_float_to_decimal(v)
+            )
+
+        print(update_expression)
+        # Remove the trailing comma and space
+        update_expression = update_expression[:-2]
+
+        print(update_expression)
+        print(expression_attribute_value)
+        print(key)
 
         response = dynamodb.update_item(
             TableName=table_name,
             Key=key,
-            UpdateExpression=f"SET {attribute_name} = :value",
-            ExpressionAttributeValues={f":value": {"S": {new_value}}},
+            UpdateExpression=update_expression,
+            # To Avoid Error like Attribute name is a reserved keyword; reserved keyword: name
+            ExpressionAttributeNames=expression_attribute_name,
+            ExpressionAttributeValues=expression_attribute_value,
+            # ReturnValues="ALL_NEW",
         )
-        print(response)
+
+        # print(response)
+
+        # UpdateExpression = "SET #name = :name, #age = :age"
+        # ExpressionAttributeNames = {"#name": "name", "#age": "age"}
+        # ExpressionAttributeValues = {
+        #     ":name": {"S": "Person A"},
+        #     ":age": {"S": "11"},
+        # }
+
+        status_code = response["ResponseMetadata"]["HTTPStatusCode"]
+
+        if status_code == 200:
+            print("Update item operation was successful")
+            return True
+        else:
+            print(f"Update item operation failed with an {status_code} status code.")
 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -196,6 +243,8 @@ def delete_item(id):
         key = {"id": {"N": str(id)}}
 
         response = dynamodb.delete_item(TableName=table_name, Key=key)
+
+        print(response)
 
         status_code = response["ResponseMetadata"]["HTTPStatusCode"]
 
@@ -208,6 +257,8 @@ def delete_item(id):
     except Exception as e:
         print(f"An error occurred: {e}")
 
+
+# create_table(table_name)
 
 if __name__ == "__main__":
     if is_table(table_name) == False:
@@ -228,12 +279,19 @@ if __name__ == "__main__":
 
     read_table()
 
-    get_item(id=1)
-
-    # delete_item(id=1)
-
     # get_item(id=1)
 
-    # Pending Work Update Item
+    item_dict = {
+        "id": 1,
+        "name": "Mission Chinese Food",
+        "neighborhood": "Manhattan",
+        "photograph": "Photo_1.jpg",
+        "address": "171 E Broadway, New York, NY 10002",
+        "latlng": {"lat": 40.713829, "lng": -73.989667},
+    }
+
+    # delete_item(id=11)
 
     # update_item(item_dict)
+
+    # get_item(id=1)
