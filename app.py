@@ -1,10 +1,45 @@
-from flask import Flask, jsonify, request
+import time
 
-from db import read_table, get_item, delete_item, update_item, put_item
+from flask import Flask, jsonify, request, abort
+
+from db import read_table, read_items, get_item, delete_item, update_item, put_item
 
 app = Flask(__name__)
 
 # print(__name__)
+
+data = [{"id": i, "name": f"Restaurant {i}"} for i in range(1, 1001)]
+
+PAGE_LIMIT = 5
+
+
+def get_page(data, url, start, limit):
+    page = {}
+
+    start = int(start)
+    limit = int(limit)
+    page["start"] = start
+    page["limit"] = limit
+    total = len(data)
+    page["total"] = total
+
+    if total < start or limit < 0:
+        abort(404)
+    if start == 1:
+        page["previous"] = ""
+    else:
+        previous_start = max(start - limit, 1)
+        page["previous"] = url + f"?start={previous_start}&limit={limit}"
+
+    if start + limit > total:
+        page["next"] = ""
+    else:
+        next_start = start + limit
+        page["next"] = url + f"?start={next_start}&limit={limit}"
+
+    page["restaurants"] = data[start - 1 : (start - 1) + limit]
+
+    return page
 
 
 @app.route("/")
@@ -15,12 +50,25 @@ def welcome_message():
 @app.route("/api/restaurants", methods=["GET"])
 def get_restaurants():
     try:
-        restaurants = read_table()
+        # restaurants = read_items()
 
-        if restaurants:
-            return jsonify(restaurants)
-        else:
-            return jsonify({"message": "Restaurants not found"}), 404
+        restaurants = data
+
+        # # time.sleep(10)
+
+        # if restaurants:
+        #     return jsonify(restaurants), 200
+        # else:
+        #     return jsonify({"message": "Restaurants not found"}), 404
+
+        response = get_page(
+            restaurants,
+            "/api/restaurants",
+            start=request.args.get("start", 1),
+            limit=request.args.get("limit", 5),
+        )
+
+        return response
 
     except Exception as e:
         print(e)
@@ -30,6 +78,8 @@ def get_restaurants():
 def get_specific_restaurant(restaurant_id):
     try:
         restaurant = get_item(restaurant_id)
+
+        # time.sleep(10)
 
         if restaurant:
             return jsonify(restaurant)
@@ -49,7 +99,7 @@ def create_restaurant(restaurant_id):
         response = put_item(data)
 
         if response:
-            return jsonify({"message": f"Restaurant {restaurant_id} Created"})
+            return jsonify({"message": f"Restaurant {restaurant_id} Created"}), 201
         else:
             return (
                 jsonify({"message": f"Issue in creating restaurant {restaurant_id}"}),
@@ -69,7 +119,7 @@ def update_restaurant(restaurant_id):
         response = update_item(data)
 
         if response:
-            return jsonify({"message": f"Restaurant {restaurant_id} updated"})
+            return jsonify({"message": f"Restaurant {restaurant_id} updated"}), 200
         else:
             return jsonify({"message": f"Restaurant {restaurant_id} not found"}), 404
 
@@ -82,13 +132,20 @@ def delete_restaurant(restaurant_id):
     try:
         response = delete_item(restaurant_id)
 
+        print(response)
+
         if response:
-            return jsonify({"message": f"Restaurant {restaurant_id} deleted"})
+            return "", 204
         else:
             return jsonify({"message": f"Restaurant {restaurant_id} not found"}), 404
 
     except Exception as e:
         print(e)
+
+
+@app.errorhandler(405)
+def method_not_allowed(error):
+    return "Method Not Allowed", 405
 
 
 if __name__ == "__main__":

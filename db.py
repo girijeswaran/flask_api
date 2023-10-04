@@ -1,10 +1,12 @@
 import json
+import time
 import boto3
 from decimal import Decimal
 from boto3.dynamodb.types import TypeSerializer, TypeDeserializer
 
 dynamodb = boto3.client(
-    "dynamodb", region_name="us-east-1", endpoint_url="http://localhost:8000"
+    "dynamodb",
+    region_name="eu-north-1",  # , endpoint_url="https://dynamodb.eu-north-1.amazonaws.com/"
 )
 
 table_name = "restaurants"
@@ -18,6 +20,32 @@ def read_json(filename):
     try:
         with open(filename, "r", encoding="utf-8") as file:
             return json.load(file)
+
+    except Exception as e:
+        print(e)
+
+
+def write_json(filename, data):
+    try:
+        with open(filename, "w", encoding="utf-8") as outfile:
+            json.dump(data, outfile, indent=4)
+    except Exception as e:
+        print(e)
+
+
+def append_json(filename, data):
+    try:
+        file_data = read_json(filename)
+        if not file_data:
+            file_data = []
+
+        elif isinstance(file_data, dict):
+            temp = file_data
+            file_data = []
+            file_data.append(temp)
+
+        file_data.append(data)
+        write_json(filename, file_data)
 
     except Exception as e:
         print(e)
@@ -75,7 +103,7 @@ def create_table(table_name):
 
         key_schema = [{"AttributeName": "id", "KeyType": "HASH"}]
 
-        attribute_definitions = [{"AttributeName": "id", "AttributeType": "N"}]
+        attribute_definitions = [{"AttributeName": "id", "AttributeType": "S"}]
 
         provisioned_throughput = {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
 
@@ -95,7 +123,60 @@ def create_table(table_name):
         print(f"An error occurred: {e}")
 
 
-def read_table():
+def read_items(start, limit):
+    try:
+        print("Reading Table by Limit of", limit)
+
+        restaurants_list = read_json("items_cache.json")
+
+        last_evaluated_key = None
+
+        if restaurants_list & len(restaurants_list):
+            last_evaluated_key = restaurants_list[start - 1]["id"]
+
+        if last_evaluated_key and len(restaurants_list) >= (start - 1) + limit:
+            print("No of Items", len(restaurants_list))
+            return restaurants_list
+
+        else:
+            last_evaluated_key = None
+
+            response = dynamodb.scan(
+                TableName=table_name, ExclusiveStartKey=last_evaluated_key, limit=limit
+            )
+
+            items = response.get("Items", [])
+
+            items_dict = []
+
+            for item in items:
+                item_dict = deserialize(item)
+                items_dict.append(item_dict)
+                print(item_dict)
+
+            count = 0
+            for i in range(start, start + len(item_dict)):
+                if restaurants_list[i]["id"] == item_dict[count]["id"]:
+                    restaurants_list[i]["id"] = item_dict[count]["id"]
+                else:
+                    print(restaurants_list[i])
+                    print(item_dict[count])
+                    print("---------------")
+
+            write_json("items_cache.json", restaurants_list)
+
+            print(".........................")
+            print("No of Items", len(items_dict))
+            print("......................")
+            print(response.get("LastEvaluatedKey", None))
+
+            return restaurants_list
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+def read_items():
     try:
         response = dynamodb.scan(TableName=table_name)
 
@@ -111,6 +192,60 @@ def read_table():
         print("No of Items", len(items_dict))
 
         return items
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+def read_table():
+    try:
+        print("Reading Entire Table!")
+
+        global restaurants_list
+
+        if restaurants_list:
+            print("No of Items", len(restaurants_list))
+            return restaurants_list
+
+        else:
+            all_restaurants = []
+
+            last_evaluated_key = None
+
+            response = dynamodb.scan(TableName=table_name)
+
+            # Pagination loop to read all items
+            while True:
+                all_restaurants.extend(response.get("Items", []))
+
+                last_evaluated_key = response.get("LastEvaluatedKey", None)
+
+                # Check if there are more items to read
+                if not last_evaluated_key:
+                    break  # No more items to read
+                else:
+                    print("Read", len(all_restaurants), "Restaurants!")
+                    time.sleep(10)
+                    response = dynamodb.scan(
+                        TableName=table_name,
+                        ExclusiveStartKey=last_evaluated_key,  # Start from the last evaluated key
+                    )
+
+            items_dict = []
+
+            for item in all_restaurants:
+                item_dict = deserialize(item)
+                items_dict.append(item_dict)
+                print(item_dict)
+
+            restaurants_list = item_dict.copy()
+
+            print(".........................")
+            print("No of Items", len(items_dict))
+            print("......................")
+            print(response.get("LastEvaluatedKey", None))
+
+            return all_restaurants
 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -146,11 +281,12 @@ def put_item(item_dict):
 def put_items(items_list):
     for item in items_list:
         put_item(item)
+        # break
 
 
 def get_item(id):
     try:
-        key = {"id": {"N": str(id)}}
+        key = {"id": {"S": str(id)}}
 
         response = dynamodb.get_item(TableName=table_name, Key=key)
 
@@ -180,7 +316,7 @@ def update_item(item_dict):
 
         id = item_dict.pop("id", None)
 
-        key = {"id": {"N": str(id)}}
+        key = {"id": {"S": str(id)}}
 
         update_expression = "SET "
 
@@ -240,7 +376,7 @@ def update_item(item_dict):
 
 def delete_item(id):
     try:
-        key = {"id": {"N": str(id)}}
+        key = {"id": {"S": str(id)}}
 
         response = dynamodb.delete_item(TableName=table_name, Key=key)
 
@@ -260,24 +396,33 @@ def delete_item(id):
 
 # create_table(table_name)
 
+# read_table()
+
+
+def insert_items():
+    restaurants = read_json("final_data (1).json")
+
+    # items = items["restaurants"] if items.get("restaurants") else items
+
+    if isinstance(restaurants, list):
+        print("Yes, List")
+        put_items(restaurants)
+    else:
+        put_item(restaurants)
+
+
 if __name__ == "__main__":
     if is_table(table_name) == False:
         create_table(table_name)
 
-        items = read_json("restaurants.json")
+        time.sleep(60)
 
-        items = items["restaurants"] if items.get("restaurants") else items
-
-        if isinstance(items, list):
-            print("Yes, List")
-            put_items(items)
-        else:
-            put_item(items)
+        insert_items()
 
     else:
         print("The Table Already Created!")
 
-    read_table()
+    # read_table()
 
     # get_item(id=1)
 
