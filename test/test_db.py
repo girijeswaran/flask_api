@@ -1,13 +1,13 @@
 import sys
 
+sys.path.append("..")
+
 from db import (
     get_item,
     delete_item,
     update_item,
     put_item,
 )
-
-sys.path.append("..")
 
 data = {
     "id": "4",
@@ -34,6 +34,15 @@ def test_get_item():
 
 def test_put_item():
     response = put_item(data)
+
+    if response:
+        assert True
+    else:
+        assert False
+
+
+def test_update_item():
+    response = update_item(data)
 
     if response:
         assert True

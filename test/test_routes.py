@@ -2,10 +2,9 @@ import pytest
 
 import sys
 
-from app import app
-
 sys.path.append("..")
 
+from app import app
 
 data = {
     "id": "4",
