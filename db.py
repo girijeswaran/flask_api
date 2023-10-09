@@ -9,7 +9,7 @@ dynamodb = boto3.client(
     region_name="eu-north-1",  # , endpoint_url="https://dynamodb.eu-north-1.amazonaws.com/"
 )
 
-table_name = "restaurants"
+table_name = "restaurants_final"
 
 serializer = TypeSerializer()
 
@@ -20,32 +20,6 @@ def read_json(filename):
     try:
         with open(filename, "r", encoding="utf-8") as file:
             return json.load(file)
-
-    except Exception as e:
-        print(e)
-
-
-def write_json(filename, data):
-    try:
-        with open(filename, "w", encoding="utf-8") as outfile:
-            json.dump(data, outfile, indent=4)
-    except Exception as e:
-        print(e)
-
-
-def append_json(filename, data):
-    try:
-        file_data = read_json(filename)
-        if not file_data:
-            file_data = []
-
-        elif isinstance(file_data, dict):
-            temp = file_data
-            file_data = []
-            file_data.append(temp)
-
-        file_data.append(data)
-        write_json(filename, file_data)
 
     except Exception as e:
         print(e)
@@ -101,18 +75,34 @@ def create_table(table_name):
     try:
         # table_name = "restaurants"
 
-        key_schema = [{"AttributeName": "id", "KeyType": "HASH"}]
+        key_schema = [
+            {"AttributeName": "id", "KeyType": "HASH"},
+            {
+                "AttributeName": "city",
+                "KeyType": "RANGE",  # RANGE corresponds to the sort key
+            },
+        ]
 
-        attribute_definitions = [{"AttributeName": "id", "AttributeType": "S"}]
+        attribute_definitions = [
+            {"AttributeName": "id", "AttributeType": "S"},
+            {
+                "AttributeName": "city",
+                "AttributeType": "S",  # N corresponds to Number data type
+            },
+        ]
 
         provisioned_throughput = {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
 
-        dynamodb.create_table(
+        response = dynamodb.create_table(
             TableName=table_name,
             KeySchema=key_schema,
             AttributeDefinitions=attribute_definitions,
             ProvisionedThroughput=provisioned_throughput,
         )
+
+        # Wait for the table to be created
+        table_waiter = dynamodb.get_waiter("table_exists")
+        table_waiter.wait(TableName=table_name)
 
         print("Table Created Successfully")
 
@@ -123,181 +113,85 @@ def create_table(table_name):
         print(f"An error occurred: {e}")
 
 
-def read_items(start, limit):
-    try:
-        print("Reading Table by Limit of", limit)
-
-        restaurants_list = read_json("items_cache.json")
-
-        last_evaluated_key = None
-
-        if restaurants_list & len(restaurants_list):
-            last_evaluated_key = restaurants_list[start - 1]["id"]
-
-        if last_evaluated_key and len(restaurants_list) >= (start - 1) + limit:
-            print("No of Items", len(restaurants_list))
-            return restaurants_list
-
-        else:
-            last_evaluated_key = None
-
-            response = dynamodb.scan(
-                TableName=table_name, ExclusiveStartKey=last_evaluated_key, limit=limit
-            )
-
-            items = response.get("Items", [])
-
-            items_dict = []
-
-            for item in items:
-                item_dict = deserialize(item)
-                items_dict.append(item_dict)
-                print(item_dict)
-
-            count = 0
-            for i in range(start, start + len(item_dict)):
-                if restaurants_list[i]["id"] == item_dict[count]["id"]:
-                    restaurants_list[i]["id"] = item_dict[count]["id"]
-                else:
-                    print(restaurants_list[i])
-                    print(item_dict[count])
-                    print("---------------")
-
-            write_json("items_cache.json", restaurants_list)
-
-            print(".........................")
-            print("No of Items", len(items_dict))
-            print("......................")
-            print(response.get("LastEvaluatedKey", None))
-
-            return restaurants_list
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-
-def read_items():
-    try:
-        response = dynamodb.scan(TableName=table_name)
-
-        items = response.get("Items", [])
-
-        items_dict = []
-
-        for item in items:
-            item_dict = deserialize(item)
-            items_dict.append(item_dict)
-            print(item_dict)
-
-        print("No of Items", len(items_dict))
-
-        return items
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-
-def read_table():
-    try:
-        print("Reading Entire Table!")
-
-        global restaurants_list
-
-        if restaurants_list:
-            print("No of Items", len(restaurants_list))
-            return restaurants_list
-
-        else:
-            all_restaurants = []
-
-            last_evaluated_key = None
-
-            response = dynamodb.scan(TableName=table_name)
-
-            # Pagination loop to read all items
-            while True:
-                all_restaurants.extend(response.get("Items", []))
-
-                last_evaluated_key = response.get("LastEvaluatedKey", None)
-
-                # Check if there are more items to read
-                if not last_evaluated_key:
-                    break  # No more items to read
-                else:
-                    print("Read", len(all_restaurants), "Restaurants!")
-                    time.sleep(10)
-                    response = dynamodb.scan(
-                        TableName=table_name,
-                        ExclusiveStartKey=last_evaluated_key,  # Start from the last evaluated key
-                    )
-
-            items_dict = []
-
-            for item in all_restaurants:
-                item_dict = deserialize(item)
-                items_dict.append(item_dict)
-                print(item_dict)
-
-            restaurants_list = item_dict.copy()
-
-            print(".........................")
-            print("No of Items", len(items_dict))
-            print("......................")
-            print(response.get("LastEvaluatedKey", None))
-
-            return all_restaurants
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-
 def put_item(item_dict):
     try:
-        serialized_item = {
-            key: serializer.serialize(convert_float_to_decimal(value))
-            for key, value in item_dict.items()
-        }
+        if item_dict.get("id") and item_dict.get("city"):
+            serialized_item = {
+                key: serializer.serialize(convert_float_to_decimal(value))
+                for key, value in item_dict.items()
+            }
 
-        # print(item_dict)
-        # print("---------")
-        # print(serialized_item)
+            item_dict2 = item_dict.copy()
 
-        response = dynamodb.put_item(TableName=table_name, Item=serialized_item)
+            item_dict2["id"] = "RESTAURANTS"
 
-        # print(response)
+            item_dict2["city"] = "CITY###" + item_dict["city"] + "###" + item_dict["id"]
 
-        status_code = response["ResponseMetadata"]["HTTPStatusCode"]
+            serialized_item2 = {
+                key: serializer.serialize(convert_float_to_decimal(value))
+                for key, value in item_dict2.items()
+            }
 
-        if status_code == 200:
-            print("Put item operation was successful")
-            return True
+            # print(item_dict)
+            # print("---------")
+            # print(serialized_item)
+
+            response = dynamodb.put_item(TableName=table_name, Item=serialized_item)
+
+            response2 = dynamodb.put_item(TableName=table_name, Item=serialized_item2)
+
+            # print(response)
+
+            status_code = response["ResponseMetadata"]["HTTPStatusCode"]
+            status_code2 = response2["ResponseMetadata"]["HTTPStatusCode"]
+
+            if status_code == 200 and status_code2 == 200:
+                print("Put item operation was successful")
+                return True
+            else:
+                print(f"Put item operation failed with an {status_code} status code.")
+
         else:
-            print(f"Put item operation failed with an {status_code} status code.")
+            print("Either id or city is missing!")
 
     except Exception as e:
         print(f"An error occurred: {e}")
 
 
 def put_items(items_list):
+    i = 0
     for item in items_list:
-        put_item(item)
+        if i < 1000:
+            put_item(item)
+            i = i + 1
+        else:
+            break
         # break
 
 
 def get_item(id):
     try:
-        key = {"id": {"S": str(id)}}
+        # key = {"id": {"S": str(id)}}
 
-        response = dynamodb.get_item(TableName=table_name, Key=key)
+        # response = dynamodb.get_item(TableName=table_name, Key=key)
 
-        item = response.get("Item")
+        response = dynamodb.query(
+            TableName=table_name,
+            KeyConditionExpression="#id =:value",
+            ExpressionAttributeValues={":value": {"S": str(id)}},
+            ExpressionAttributeNames={"#id": "id"},
+        )
 
-        if item:
+        items = response.get("Items")
+
+        if items:
+            item = items[0]
+
             # print(type(item))
 
             item_dict = deserialize(item)
 
-            print(item_dict)
+            print("Item Found:", item_dict)
 
             return item_dict
 
@@ -308,6 +202,68 @@ def get_item(id):
         print(f"An error occurred: {e}")
 
 
+def get_items(limit=5, start_key=None, backward=False, city=None):
+    try:
+        query_params = {}
+
+        query_params["Limit"] = limit
+
+        if start_key:
+            {"id": {"S": "RESTAURANTS"}, "city": {"S": "CITY###Abohar###156588"}}
+
+            query_params["ExclusiveStartKey"] = {
+                "id": {"S": "RESTAURANTS"},
+                "city": {"S": "CITY###" + start_key.replace("-", "###")},
+            }
+
+        if backward:
+            query_params["ScanIndexForward"] = False
+
+        response = dynamodb.query(
+            TableName=table_name,
+            KeyConditionExpression="#id =:id AND begins_with (#city, :city )",
+            ExpressionAttributeValues={
+                ":id": {"S": "RESTAURANTS"},
+                ":city": {"S": "CITY###" + (city if city else "")},
+            },
+            ExpressionAttributeNames={"#id": "id", "#city": "city"},
+            **query_params,
+        )
+
+        # print("Query Response", response)
+
+        last_evaluated_key = response.get("LastEvaluatedKey")
+
+        print("Last Evaluated Key", last_evaluated_key)
+
+        if last_evaluated_key:
+            last_range_key = last_evaluated_key["city"]["S"]
+        else:
+            last_range_key = None
+
+        items = response.get("Items")
+
+        if items:
+            items_dict = []
+
+            i = 1
+            for item in items:
+                item_dict = deserialize(item)
+                items_dict.append(item_dict)
+                print(i, item_dict)
+                i = i + 1
+
+            # print("Items", item_dict)
+
+            return {"items": items_dict, "last_evaluated_key": last_range_key}
+
+        else:
+            print("Items not found.")
+
+    except Exception as e:
+        print(e)
+
+
 def update_item(item_dict):
     try:
         # Not Completed Yet
@@ -316,17 +272,31 @@ def update_item(item_dict):
 
         id = item_dict.pop("id", None)
 
-        key = {"id": {"S": str(id)}}
+        # only use this city for an update if id and existing_item_city = user_given_city
+
+        city = item_dict.pop("city", None)
+
+        item = get_item(id)
+
+        if item:
+            print("Restaurant Found!")
+            city = item["city"]
+        else:
+            print(f"The given Restaurant with id = {id} not found!")
+            return
+
+        key = {"id": {"S": str(id)}, "city": {"S": city}}
+
+        key2 = {"id": {"S": "RESTAURANTS"}, "city": {"S": f"CITY###{city}###{id}"}}
+
+        keys = [key, key2]
 
         update_expression = "SET "
 
         expression_attribute_name = {}
         expression_attribute_value = {}
 
-        # serialized_item = {
-        #     key: serializer.serialize(convert_float_to_decimal(value))
-        #     for key, value in item_dict.items()
-        # }
+        # put item vs update item
 
         for k, v in item_dict.items():
             update_expression += f"#{k} = :{k}, "
@@ -341,19 +311,24 @@ def update_item(item_dict):
 
         print(update_expression)
         print(expression_attribute_value)
-        print(key)
+        print(keys)
 
-        response = dynamodb.update_item(
-            TableName=table_name,
-            Key=key,
-            UpdateExpression=update_expression,
-            # To Avoid Error like Attribute name is a reserved keyword; reserved keyword: name
-            ExpressionAttributeNames=expression_attribute_name,
-            ExpressionAttributeValues=expression_attribute_value,
-            # ReturnValues="ALL_NEW",
-        )
+        status_codes = []
 
-        # print(response)
+        for k in keys:
+            response = dynamodb.update_item(
+                TableName=table_name,
+                Key=k,
+                UpdateExpression=update_expression,
+                # To Avoid Error like Attribute name is a reserved keyword; reserved keyword: name
+                ExpressionAttributeNames=expression_attribute_name,
+                ExpressionAttributeValues=expression_attribute_value,
+                # ReturnValues="ALL_NEW",
+            )
+
+            status_codes.append(response["ResponseMetadata"]["HTTPStatusCode"])
+
+            # print(response)
 
         # UpdateExpression = "SET #name = :name, #age = :age"
         # ExpressionAttributeNames = {"#name": "name", "#age": "age"}
@@ -362,13 +337,11 @@ def update_item(item_dict):
         #     ":age": {"S": "11"},
         # }
 
-        status_code = response["ResponseMetadata"]["HTTPStatusCode"]
-
-        if status_code == 200:
+        if status_codes[0] == 200 and status_codes[1] == 200:
             print("Update item operation was successful")
             return True
         else:
-            print(f"Update item operation failed with an {status_code} status code.")
+            print(f"Update item operation failed with an {status_codes} status code.")
 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -376,15 +349,29 @@ def update_item(item_dict):
 
 def delete_item(id):
     try:
-        key = {"id": {"S": str(id)}}
+        item = get_item(id)
+
+        if item:
+            print("Restaurant Found!")
+            city = item["city"]
+        else:
+            print(f"The given Restaurant with id = {id} not found!")
+            return
+
+        key = {"id": {"S": str(id)}, "city": {"S": city}}
+
+        key2 = {"id": {"S": "RESTAURANTS"}, "city": {"S": f"CITY###{city}###{id}"}}
 
         response = dynamodb.delete_item(TableName=table_name, Key=key)
 
-        print(response)
+        response2 = dynamodb.delete_item(TableName=table_name, Key=key2)
+
+        # print(response)
 
         status_code = response["ResponseMetadata"]["HTTPStatusCode"]
+        status_code2 = response2["ResponseMetadata"]["HTTPStatusCode"]
 
-        if status_code == 200:
+        if status_code == 200 and status_code2 == 200:
             print("delete item operation was successful")
             return True
         else:
@@ -394,13 +381,8 @@ def delete_item(id):
         print(f"An error occurred: {e}")
 
 
-# create_table(table_name)
-
-# read_table()
-
-
 def insert_items():
-    restaurants = read_json("final_data (1).json")
+    restaurants = read_json("final_dataset.json")
 
     # items = items["restaurants"] if items.get("restaurants") else items
 
@@ -414,29 +396,26 @@ def insert_items():
 if __name__ == "__main__":
     if is_table(table_name) == False:
         create_table(table_name)
-
-        time.sleep(60)
-
         insert_items()
 
     else:
         print("The Table Already Created!")
 
-    # read_table()
+    # insert_items()
 
-    # get_item(id=1)
+    get_item("158203")
+
+    # get_item("RESTAURANTS")
 
     item_dict = {
-        "id": 1,
-        "name": "Mission Chinese Food",
-        "neighborhood": "Manhattan",
-        "photograph": "Photo_1.jpg",
-        "address": "171 E Broadway, New York, NY 10002",
-        "latlng": {"lat": 40.713829, "lng": -73.989667},
+        "id": "158203",
+        "city": "City Test",
+        "name": "Update Test",
+        "address": "Address Test",
     }
-
-    # delete_item(id=11)
 
     # update_item(item_dict)
 
-    # get_item(id=1)
+    get_items(start_key="CITY###Abohar###531342")
+
+    # delete_item("531342")
