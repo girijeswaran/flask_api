@@ -24,7 +24,7 @@ data = {
 
 
 def test_get_item():
-    response = get_item("1")
+    response = get_item("156542")
 
     if response:
         assert True

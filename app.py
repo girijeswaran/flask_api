@@ -16,42 +16,13 @@ app = Flask(__name__)
 
 data = [{"id": i, "name": f"Restaurant {i}"} for i in range(1, 1001)]
 
-PAGE_LIMIT = 5
-
-
-def get_page1(data, url, page_num, start):
-    page = {}
-
-    start = int(start)
-    limit = int(PAGE_LIMIT)
-    page["start"] = start
-    page["limit"] = limit
-    total = len(data)
-    page["total"] = total
-
-    if total < start or limit < 0:
-        abort(404)
-    if start == 1:
-        page["previous"] = ""
-    else:
-        previous_start = max(start - limit, 1)
-        page["previous"] = url + f"?start={previous_start}&limit={limit}"
-
-    if start + limit > total:
-        page["next"] = ""
-    else:
-        next_start = start + limit
-        page["next"] = url + f"?start={next_start}&limit={limit}"
-
-    page["restaurants"] = data[start - 1 : (start - 1) + limit]
-
-    return page
+PAGE_LIMIT = 50
 
 
 def get_page(data, url, previous, next):
     page = {}
 
-    page["limit"] = PAGE_LIMIT
+    # page["limit"] = PAGE_LIMIT
     total = len(data)
     page["total"] = total
 
@@ -61,12 +32,12 @@ def get_page(data, url, previous, next):
     if not previous:
         page["previous"] = ""
     else:
-        page["previous"] = url + f"?previous={previous}"
+        page["previous"] = url + f"&previous={previous}"
 
     if not next:
         page["next"] = ""
     else:
-        page["next"] = url + f"?next={next}"
+        page["next"] = url + f"&next={next}"
 
     page["restaurants"] = data
 
@@ -81,27 +52,33 @@ def welcome_message():
 @app.route("/api/restaurants", methods=["GET"])
 def get_restaurants():
     try:
-        next = request.args.get("next", 0)
+        next = request.args.get("next", "")
 
-        previous = request.args.get("previous", 0)
+        previous = request.args.get("previous", "")
 
         city = request.args.get("city", "")
 
-        print("next", next)
+        limit = int(request.args.get("limit", PAGE_LIMIT))
 
-        print("previous", previous)
+        print("Next of", next)
+
+        print("Previous of", previous)
 
         print("City", city)
 
+        print("Limit", limit)
+
         if previous:
-            result = get_items(start_key=previous, backward=True, city=city)
+            result = get_items(
+                limit=limit, start_key=previous, backward=True, city=city
+            )
             restaurants = result["items"]
             first_item = result["last_evaluated_key"]
             last_item = restaurants[0]["city"]
             restaurants.reverse()
-            print("Reverse", restaurants)
+            # print("Reverse", restaurants)
         else:
-            result = get_items(start_key=next, city=city)
+            result = get_items(limit=limit, start_key=next, city=city)
             restaurants = result["items"]
             last_item = result["last_evaluated_key"]
             if next or previous:
@@ -117,8 +94,6 @@ def get_restaurants():
 
         # restaurants = data
 
-        # # time.sleep(10)
-
         # if restaurants:
         #     return jsonify(restaurants), 200
         # else:
@@ -126,7 +101,7 @@ def get_restaurants():
 
         response = get_page(
             restaurants,
-            "/api/restaurants" + (f"?city={city}" if city else ""),
+            "/api/restaurants" + f"?limit={limit}" + (f"&city={city}" if city else ""),
             previous=first_item,
             next=last_item,
         )

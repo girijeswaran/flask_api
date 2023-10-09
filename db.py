@@ -159,14 +159,11 @@ def put_item(item_dict):
 
 
 def put_items(items_list):
-    i = 0
+    start = 9870 // 2
+
+    items_list = items_list[start:]
     for item in items_list:
-        if i < 1000:
-            put_item(item)
-            i = i + 1
-        else:
-            break
-        # break
+        put_item(item)
 
 
 def get_item(id):
@@ -202,63 +199,80 @@ def get_item(id):
         print(f"An error occurred: {e}")
 
 
-def get_items(limit=5, start_key=None, backward=False, city=None):
+def get_items(limit, start_key=None, backward=False, city=None):
     try:
         query_params = {}
 
         query_params["Limit"] = limit
 
         if start_key:
-            {"id": {"S": "RESTAURANTS"}, "city": {"S": "CITY###Abohar###156588"}}
+            # {"id": {"S": "RESTAURANTS"}, "city": {"S": "CITY###Abohar###156588"}}
 
             query_params["ExclusiveStartKey"] = {
                 "id": {"S": "RESTAURANTS"},
                 "city": {"S": "CITY###" + start_key.replace("-", "###")},
             }
 
-        if backward:
-            query_params["ScanIndexForward"] = False
+        results = []
+        last_range_key = None
 
-        response = dynamodb.query(
-            TableName=table_name,
-            KeyConditionExpression="#id =:id AND begins_with (#city, :city )",
-            ExpressionAttributeValues={
-                ":id": {"S": "RESTAURANTS"},
-                ":city": {"S": "CITY###" + (city if city else "")},
-            },
-            ExpressionAttributeNames={"#id": "id", "#city": "city"},
-            **query_params,
-        )
+        while True:
+            print("Limit", query_params["Limit"])
 
-        # print("Query Response", response)
+            response = dynamodb.query(
+                TableName=table_name,
+                KeyConditionExpression="#id =:id AND begins_with (#city, :city )",
+                ExpressionAttributeValues={
+                    ":id": {"S": "RESTAURANTS"},
+                    ":city": {"S": "CITY###" + (city if city else "")},
+                },
+                ExpressionAttributeNames={"#id": "id", "#city": "city"},
+                ScanIndexForward=not backward,
+                **query_params,
+            )
 
-        last_evaluated_key = response.get("LastEvaluatedKey")
+            # print("Query Response", response)
 
-        print("Last Evaluated Key", last_evaluated_key)
+            items = response.get("Items") or []
 
-        if last_evaluated_key:
-            last_range_key = last_evaluated_key["city"]["S"]
-        else:
-            last_range_key = None
+            items_list = []
 
-        items = response.get("Items")
-
-        if items:
-            items_dict = []
+            print("Items Length", len(items))
 
             i = 1
             for item in items:
                 item_dict = deserialize(item)
-                items_dict.append(item_dict)
-                print(i, item_dict)
+                items_list.append(item_dict)
+                # print(i, item_dict)
                 i = i + 1
 
-            # print("Items", item_dict)
+            results.extend(items_list)
 
-            return {"items": items_dict, "last_evaluated_key": last_range_key}
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            count = response.get("Count")
 
-        else:
-            print("Items not found.")
+            print("Last Evaluated Key", last_evaluated_key)
+            print("Scanned Count", response.get("ScannedCount"))
+            print("Read Count", count)
+
+            if last_evaluated_key:
+                query_params["ExclusiveStartKey"] = last_evaluated_key
+
+                query_params["Limit"] = query_params["Limit"] - count
+
+                last_range_key = last_evaluated_key["city"]["S"]
+
+            else:
+                last_range_key = None
+
+            print("Length of Results", len(results), "/", limit)
+
+            if len(results) >= limit or not last_evaluated_key:
+                break
+
+        # print("All Items", results)
+
+        return {"items": results, "last_evaluated_key": last_range_key}
 
     except Exception as e:
         print(e)
@@ -401,7 +415,7 @@ if __name__ == "__main__":
     else:
         print("The Table Already Created!")
 
-    # insert_items()
+    insert_items()
 
     get_item("158203")
 
@@ -416,6 +430,6 @@ if __name__ == "__main__":
 
     # update_item(item_dict)
 
-    get_items(start_key="CITY###Abohar###531342")
+    # get_items(start_key="CITY###Abohar###531342")
 
     # delete_item("531342")

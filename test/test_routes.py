@@ -31,7 +31,7 @@ def test_get_restaurants(client):
 
 
 def test_get_restaurant(client):
-    response = client.get("/api/restaurants/1")
+    response = client.get("/api/restaurants/156542")
     assert response.status_code == 200
 
 
@@ -46,7 +46,7 @@ def test_put_restaurant(client):
 
 
 def test_delete_restaurant(client):
-    response = client.delete("/api/restaurants/3")
+    response = client.delete("/api/restaurants/4")
     assert response.status_code == 204
 
 
